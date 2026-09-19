@@ -5,7 +5,7 @@
 ## 1. Name & Positioning
 
 - **Name:** Tract — double meaning: a short written work, and the tracking function of git.
-- **Tagline:** *"CodeRabbit reviews your code. Tract writes about it."*
+- **Tagline:** *"Claude reviews your code. Tract writes about it."*
 - **Core value prop:** it just knows who you are, how you talk, and what you're building — no re-explaining your identity/context every time you want to post about your work.
 
 ## 2. Problem
@@ -56,7 +56,7 @@ Solo/indie developers building in public with an existing or growing social pres
 - Seeded at onboarding from user-provided past posts (`tract voice add <file>`)
 - Stored locally (SQLite/JSON), used as few-shot context in generation prompts
 - Auto-improves from three signals, all feeding the same feedback store:
-  1. **Implicit** — diff between generated draft and what the user actually edited
+  1. **Implicit** — diff between generated draft and what the user actually edited / or latest commit (if first commit)
   2. **Explicit** — accept/reject on each draft
   3. **Manual** — user re-pastes new samples to recalibrate
 - **Open, unresolved question:** is the voice profile global per-user, or scoped per-repo/project? A solo dev's tone for client work vs. a personal project vs. an OSS contribution may need to differ. Needs a decision before the data model is locked.
