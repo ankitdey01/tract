@@ -12,9 +12,21 @@
   },
   "license": "ISC",
   "author": "ankitdey01",
-  "type": "commonjs",
-  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "tract": "./dist/cli/main.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --no-warnings=ExperimentalWarning ./dist/cli/main.js",
+    "start": "node ./dist/cli/main.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "typescript": "^5.6.3"
   }
 }

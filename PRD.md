@@ -1,11 +1,10 @@
 # Tract — Product Requirements Document
 
-**Status:** Pre-release, first commit. This document is the single source of truth for product, architecture, and decisions made so far.
+**Status:** Pre-release. This document is the single source of truth for product, design flow, and decisions made so far. Implementation stack is settled as TypeScript + Node (see `package.json`, `tsconfig.json`, `src/`); the LLM provider and storage are swappable behind interfaces (mocked in tests). Only genuinely open build-time choices (concrete provider, backend, test/eval harness) remain to be decided during build.
 
 ## 1. Name & Positioning
 
 - **Name:** Tract — double meaning: a short written work, and the tracking function of git.
-- **Tagline:** *"Claude reviews your code. Tract writes about it."*
 - **Core value prop:** it just knows who you are, how you talk, and what you're building — no re-explaining your identity/context every time you want to post about your work.
 
 ## 2. Problem
@@ -23,7 +22,7 @@ Solo/indie developers building in public with an existing or growing social pres
 - Filter for significance — don't generate content for every trivial commit
 - Keep a human in the loop before anything is posted (draft-first, non-negotiable)
 - Continuously improve voice matching from real usage signal
-- CLI-first, VS Code extension second — meets developers where they already work, ships the cheaper/lower-risk surface first
+- Meet developers where they already work — simplest terminal-native surface first, richer editor integration later
 
 ## 5. Non-Goals (v1)
 
@@ -36,40 +35,44 @@ Solo/indie developers building in public with an existing or growing social pres
 
 - **Draft-first, always.** A "Post" button is allowed, but only ever appears after the user has seen and can edit the draft. No silent/autonomous posting, ever.
 - **No direct platform APIs for publishing in v1.** Rejected in favor of browser share-intents after discovering the real cost/friction: X posting via API requires a paid developer tier; LinkedIn write-scopes require app review; neither is worth it when a browser-based flow works for free.
-- **CLI ships before the VS Code extension.** The extension is a thin UI wrapper around the same `core` engine — building CLI-first proves the engine works before adding UI complexity.
-- **`core` has zero VS Code or CLI dependency.** Both callers depend on it; it never depends on them. This is what makes the engine portable (future JetBrains plugin, GitHub Action, etc.) and testable without spinning up an editor.
+- **Simplest interface first.** The first surface is terminal-native; any editor integration comes later as a thin UI over the same engine — proving the engine works before adding UI complexity.
+- **Engine is UI-agnostic.** The content engine never depends on any specific interface. This keeps it portable (future editor plugins, CI actions, etc.) and testable without spinning up an editor.
 
 ## 7. Core Features
 
 ### 7.1 Trigger Layer
 - Git post-commit hook
-- Manual command (`tract generate`)
+- Manual trigger command (exact syntax TBD)
 - Scheduled digest (future, not v1)
 
-### 7.2 Significance Filter
-- Heuristic pre-pass first (skip lockfiles, formatting-only diffs, trivially small changes) — cheap, fast, catches obvious noise before spending an LLM call
-- LLM-judged significance check for everything that survives the heuristic pass
-- Hard timeout (2–3s) with fallback to "generate anyway" if the check times out or errors — this exists specifically so a live demo (or any real usage) never stalls on a hung API call
-- Rehearsal note: for any live/demo use, test the actual diff being used ahead of time so the significance judgment behavior is already known, not discovered live
+### 7.2 Significance Filter (Jev-only — decided)
+- Single Jev Noul judgment (`is_significant`) over diff + commit-message state via `@typesafe-ai/sdk` (`jev-latest`). No heuristic pre-pass, no generic LLM prompt-parse step.
+- State: `{ diff, commitMessage, filesChanged }`. `diff` is shaped before judging: noise paths (`.agents/`, `node_modules/`, `dist/`, lockfiles, `.env`) collapse to filename-only; full filenames still reach Jev via `filesChanged`. Shaping trims input only — it never decides significance. Question: `Is this change worth posting about?` with `true`/`false` criteria pinning "worth posting" vs. trivial/noise.
+- Pass (`noul >= threshold`, default 0.5, tunable after dogfooding) → proceed to context building + generation. Fail → stop, log, wait for next trigger.
+- `tract generate --force` bypasses the judge entirely.
+- Timeouts/errors: SDK retry with backoff; on persistent failure log a warning + proceed as if `--force` (force-through). A Jev verdict of fail still stops — only errors force through, so a hung API never blocks real usage or a demo. Jev stays the sole significance decider.
+- Rehearsal note: for any live/demo use, test the actual diff being used ahead of time so the Jev verdict is already known, not discovered live.
 
-### 7.3 Voice Profile
-- Seeded at onboarding from user-provided past posts (`tract voice add <file>`)
-- Stored locally (SQLite/JSON), used as few-shot context in generation prompts
-- Auto-improves from three signals, all feeding the same feedback store:
+### 7.3 Voice Profile (decided: global, paired)
+- Global per-user, stored under user home (`~/.tract/voice/` — e.g. `C:\Users\<you>\.tract\voice\` on Windows). No repo-local voice in v1; per-repo tone scoping deferred.
+- 4 files, pre-created: `voice.md` (default, always attached) + per-platform `x.md`, `linkedin.md`, `blog.md`. Generation prompt pairs `voice.md + <platform>.md`. No YouTube voice in v1 (YouTube format deferred, see §7.4).
+- `voice add --<platform> "<pasted string>"` appends (validated: trim, min-length, exact-dedupe); `voice create --<platform> "<string>"` overwrites; `remove --<platform>` clears the file (never deletes); `view [--<platform>]` shows all at once or one filtered.
+- Used as few-shot context in generation prompts. V1 is static files only (add/create/remove/view) — no auto-learning.
+- V2 (deferred): auto-improve from three signals, all feeding the same feedback store:
   1. **Implicit** — diff between generated draft and what the user actually edited / or latest commit (if first commit)
   2. **Explicit** — accept/reject on each draft
   3. **Manual** — user re-pastes new samples to recalibrate
-- **Open, unresolved question:** is the voice profile global per-user, or scoped per-repo/project? A solo dev's tone for client work vs. a personal project vs. an OSS contribution may need to differ. Needs a decision before the data model is locked.
+- **Open, resolved for v1:** voice profile is global per-user. Per-repo/project tone scoping deferred to post-v1.
 - **Cold-start problem, acknowledged but not fully solved:** a brand-new user with no past posts either has to paste several samples upfront (friction) or gets generic output until enough signal accumulates (mediocre first impression). For hackathon/demo purposes, resolved by pre-seeding real posts before demo day — not yet solved for a genuine first-time user in production.
 
 ### 7.4 Generation
-- Input: diff + commit context + README (where available) + voice profile + target platform
-- Output: 1–2 draft candidates per format, all 4 formats generated per trigger
+- Input: committed diff + commit context + README (where available) + paired voice profile (`voice.md` + platform file) + target platform
+- Output: 1–2 draft candidates per format, all 3 v1 formats generated per trigger (Blog, X, LinkedIn — YouTube script deferred)
 - Blog format includes a configurable target word count
 
 ### 7.5 Review
-- CLI: drafts printed to terminal / written to a local file (v1)
-- VS Code extension (later): webview panel with edit/approve/regenerate/reject actions
+- First surface: drafts shown in the terminal-native interface for review, with persistence to a local file
+- Later editor integration: panel with edit/approve/regenerate/reject actions
 
 ### 7.6 Publish — asymmetric by platform, intentionally
 - **X**: genuine one-click. Uses the public compose-intent URL (`x.com/intent/tweet?text=...`) which truly pre-fills the post text. No auth, no API, no app registration.
@@ -77,44 +80,41 @@ Solo/indie developers building in public with an existing or growing social pres
 - **Medium**: same limitation as LinkedIn — no compose-prefill URL exists at all, public or documented. Same copy + open + manual paste flow.
 - This asymmetry should be reflected honestly in product messaging — X is a true one-click; LinkedIn/Medium are "we got you 90% of the way there."
 
-## 8. Architecture
+## 8. Architecture (conceptual — implementation TBD)
 
-TypeScript monorepo, pnpm workspaces.
+Pipeline, in order:
 
-```
-apps/
-  cli/            — commander.js entrypoint (bin: tract), ships first
-  extension/      — VS Code extension, wraps the same core, ships second
-packages/
-  core/           — git diff extraction, significance filter, context builder,
-                    prompt builder, LLM provider interface (Claude implementation),
-                    voice profile store, feedback store, storage adapter interface
-  shared/         — shared types (Commit, Diff, Draft, VoiceProfile, Platform)
-```
+1. Diff/commit extraction from the local git repo
+2. Significance filter (Jev Noul judgment only; `--force` bypasses)
+3. Context building (diff + README + voice profile)
+4. Generation (prompt + external LLM, provider TBD)
+5. Human review (edit/approve/regenerate/reject — required before publish)
+6. Publish (browser-based; X intent vs. copy+open per §7.6)
+7. Feedback capture (edit deltas, accept/reject) feeding back into the voice profile
 
-- `core/src/index.ts` is the only public import surface — internals are never imported directly by `cli` or `extension`
-- `LLMProvider` is an interface, not hardcoded to Claude — swappable, mockable in tests
-- `StorageAdapter` is an interface, default implementation SQLite — swappable, mockable in tests
-- Secrets: `vscode.SecretStorage` for the extension, env vars/`.env` for the CLI — never plain settings files, never read directly by `core` (passed in as constructor args to stay UI-agnostic and testable)
-- Testing convention: colocate `*.test.ts` next to source, Vitest; `core` carries the bulk of test coverage since it's where the actual logic lives
+Design principles (not tech choices):
 
-See `architecture.mermaid` (embedded in README.md) for the full system diagram.
+- Engine decoupled from interface: any UI calls the engine; the engine never depends on a UI
+- LLM provider is swappable behind an interface (mockable in tests); no provider hardcoded
+- Storage is swappable behind an interface (local-first); no backend hardcoded
+- Secrets are passed into the engine as inputs, never read directly by it, and never stored in plain settings files
+- Test coverage lives where the logic lives (significance, context, generation, voice/feedback)
 
 ## 9. Tech Stack
 
-- TypeScript (monorepo, pnpm workspaces)
-- Node.js + Commander.js (CLI)
-- VS Code Extension API (phase 2)
-- simple-git (diff/commit parsing)
-- Anthropic Claude API (generation + significance judging)
-- SQLite (local voice-profile + feedback storage)
-- Git (native — no GitHub API/webhook dependency)
+TBD — to be decided during build. Constraints only:
 
-## 10. CLI Command Surface (initial)
+- Local-first, single-user
+- Native git for history/diffs — no hosted-git API or webhook dependency
+- Browser-based publishing — no paid platform API tiers, no OAuth in v1
 
-- `tract generate` — run the pipeline against the current repo's latest commit(s)
-- `tract voice add <file>` — seed/update the voice profile with a writing sample
-- `tract post --platform x` — open the browser with the X intent URL pre-filled for the latest approved draft
+## 10. Command Surface (decided draft — refinements open)
+
+- `tract diff [--staged]` — pre-commit preview of exactly what Jev + generation would see if run now (`git diff HEAD` by default; `--staged` = `git diff --cached` only)
+- `tract generate [<sha>] [--force]` — runs Jev gate then generates from a **committed** commit; default `<sha>` = HEAD (last commit); explicit SHA targets history; `--force` skips the Jev gate
+- `tract voice [add|create|remove|view] [--blog|--x|--linkedin] ["<pasted string>"]` — `add` appends, `create` overwrites, `remove` clears, `view` shows all (flag filters to one); `voice.md` always pairs with the platform file
+- `tract publish --platform x|linkedin|medium --commit <sha> [--copy]` — drafts read from the global store (`~/.tract/repos/<repo-slug>/<sha>/`); X opens intent URL (true prefill); LinkedIn/Medium use copy + open compose page (no prefill URL exists, per §7.6); `--copy` forces the copy path
+- Store (decided): no repo-local `.tract/` — everything under user home `~/.tract/` (Windows: `C:\Users\<you>\.tract\`), namespaced per repo for drafts; YouTube deferred so no `--youtube` voice/platform in v1
 
 ## 11. Competitive Landscape
 
@@ -125,14 +125,14 @@ See `architecture.mermaid` (embedded in README.md) for the full system diagram.
 | Posterly (Ship & Share) | GitHub-commit-to-post as one feature of a broader scheduling platform | Built for scheduled multi-platform auto-publish, not a draft-first developer tool |
 | Postgit / SideProjectBuddy | Commit → tweet/LinkedIn pipelines, GitHub-connected | Same cloud/OAuth pattern |
 
-**Core differentiation:** every competitor found is a cloud SaaS requiring GitHub OAuth. Tract is local-first and editor/CLI-native — works on uncommitted or private-repo work without granting any third party repo access, and runs in the same session where the code was written. None of the competitors surfaced a live "is this worth posting" judgment step as a first-class feature, and none offer a YouTube-script format.
+**Core differentiation:** every competitor found is a cloud SaaS requiring GitHub OAuth. Tract is local-first and terminal/editor-native — works on uncommitted or private-repo work without granting any third party repo access, and runs in the same session where the code was written. None of the competitors surfaced a live "is this worth posting" judgment step as a first-class feature, and none offer a YouTube-script format.
 
 ## 12. Business Model (draft, not finalized)
 
 - Free tier: shared/limited LLM API budget
-- Pro tier: bring-your-own API key or subscription — unlimited generation, all 4 formats, extension access
+- Pro tier: bring-your-own API key or subscription — unlimited generation, all 4 formats, editor integration access
 - Future: team/agency tier for dev-relations teams managing multiple repos' public presence
-- Pricing numbers and break-even math: not yet defined — needs real cost-per-generation modeling against Claude API pricing
+- Pricing numbers and break-even math: not yet defined — needs real cost-per-generation modeling against LLM API pricing
 
 ## 13. Success Metrics (draft, needs real targets)
 
@@ -140,17 +140,17 @@ See `architecture.mermaid` (embedded in README.md) for the full system diagram.
 - Number of generation triggers per active user per week (proxy for habit formation)
 - Retention after first week (does the tool survive the cold-start mediocrity period)
 
-## 14. Build Phases
+## 14. Build Phases (capability order — scaffolding choices TBD)
 
-0. Scaffold monorepo, CLI skeleton
-1. Git plumbing — diff/commit extraction
-2. Significance filter (heuristic pre-filter + LLM judgment, timeout+fallback)
-3. Voice profile loader (`tract voice add`)
-4. Generation — prompt builder + Claude call, all 4 formats
-5. CLI output (terminal display / file write)
-6. Publish — X intent URL (v1 target), LinkedIn/Medium copy+open (stretch)
-7. Feedback loop — persist edit/accept/reject signal, feed back into voice profile
-8. VS Code extension — same core, adds review webview
+1. Diff/commit extraction
+2. Significance filter (Jev Noul judge + `--force` bypass)
+3. Voice profile loader (per-platform `.md` files: `blog.md`, `x.md`, `linkedin.md`)
+4. Generation — prompt builder + LLM call, 3 v1 formats (Blog, X, LinkedIn; YouTube deferred)
+5. Review output (display + file persistence to global `~/.tract`)
+6. Publish — X intent URL (v1 target), LinkedIn copy+open (stretch)
+7. Feedback loop — V2 (deferred): persist edit/accept/reject signal, feed back into voice profile. V1 ships static voice only.
+8. Editor integration — same engine, adds review UI
+9. Test/eval harness — DEFERRED (unit + golden fixtures + live-Jev eval noted for future, skipped for the significance slice)
 
 ## 15. Hackathon Demo Plan
 
@@ -165,3 +165,4 @@ See `architecture.mermaid` (embedded in README.md) for the full system diagram.
 - Real, verified statistics for the business/impact case are not yet sourced — competitor-published engagement stats must not be used as Tract's own supporting facts
 - Pricing model numbers not yet modeled against actual API costs
 - Team name/branding beyond the product name "Tract" not yet finalized
+- Implementation stack (language, runtime, project layout, LLM provider, storage mechanism, test runner) — all to be decided during build
