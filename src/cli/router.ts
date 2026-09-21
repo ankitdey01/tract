@@ -24,7 +24,7 @@ export interface TractCommand {
 }
 
 /** Commands reserved for upcoming slices — friendly "not yet" instead of "unknown". */
-const FUTURE = ["voice", "publish"] as const;
+const FUTURE = ["publish"] as const;
 
 function parseArgs(raw: string[]): Omit<CommandContext, "cwd"> {
   return {

@@ -17,4 +17,13 @@ export {
 export type { TractConfig, DraftMeta } from "./core/store/index.js";
 export { ensureVoiceFiles } from "./core/voice/index.js";
 export type { VoiceFile } from "./core/voice/index.js";
+export {
+  resolveVoiceFile,
+  readVoiceFile,
+  readAllVoices,
+  appendVoiceSample,
+  overwriteVoiceSample,
+  clearVoiceFile,
+  SAMPLE_SEPARATOR,
+} from "./core/voice/index.js";
 export type { Platform, Verdict } from "./shared/types.js";

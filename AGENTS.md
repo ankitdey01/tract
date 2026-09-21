@@ -1,6 +1,6 @@
 # AGENTS.md — Tract
 
-The following instrucions and PRD.md doesnt solely represent the final product. You have complete right to cross question me and suggest me better workaround if needed and valid.
+The following instrucions and PRD.md doesnt solely represent the final product. You have complete right to cross question me and suggest me better workaround if needed and valid. Remember one thing, we dont need to build everything from scratch, thats not the point, there will be better already created specific tools and libraries for specific tasks that needs to be done. You should always find and suggest those to me. 
 Below is just a rough sketch of the overall product.
 
 `PRD.md` is the single source of truth for product, design flow, and decisions. `README.md` holds the system diagram. Read them before coding. Stack is decided: TypeScript + Node (see `package.json`, `tsconfig.json`, `src/`). Do not re-litigate it; decide only what is still open during build.

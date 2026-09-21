@@ -2,6 +2,9 @@
 
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import type { Verdict } from "../../shared/types.js";
+import { IS_SIGNIFICANT_CRITERIA, IS_SIGNIFICANT_INSTRUCTIONS } from "./prompts.js";
+
+export { IS_SIGNIFICANT_CRITERIA, IS_SIGNIFICANT_INSTRUCTIONS } from "./prompts.js";
 
 export interface SignificanceInput {
   diff: string;
@@ -39,10 +42,10 @@ export class JevSignificanceJudge implements SignificanceJudge {
       questions: {
         is_significant: {
           type: "noul",
-          instructions: "Is this change worth posting about?",
+          instructions: IS_SIGNIFICANT_INSTRUCTIONS,
           criteria: {
-            true: "User-visible feature, bug fix with user impact, performance win, or noteworthy refactor",
-            false: "Formatting-only, lockfile-only, typo-only, WIP, or generated noise",
+            true: IS_SIGNIFICANT_CRITERIA.true,
+            false: IS_SIGNIFICANT_CRITERIA.false,
           },
         },
       },
@@ -60,7 +63,7 @@ export class JevSignificanceJudge implements SignificanceJudge {
  */
 const JUDGE_TIMEOUT_MS = 30_000;
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Jev request timed out after ${ms}ms`)), ms);
