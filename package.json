@@ -23,10 +23,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@typesafe-ai/sdk": "latest"
+    "@ai-sdk/groq": "^4.0.46",
+    "@typesafe-ai/sdk": "latest",
+    "ai": "^7.0.107",
+    "commander": "^15.0.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^22.7.4",
+    "@types/node": "^22.20.4",
     "typescript": "^5.6.3"
   }
 }

@@ -30,6 +30,11 @@ function ignored(path: string): boolean {
   return IGNORED_DIR_PREFIXES.some((d) => p === d.slice(0, -1) || p.startsWith(d));
 }
 
+/** True when a repo-relative path is noise: content collapses, filename stays. */
+export function isIgnoredPath(path: string): boolean {
+  return ignored(path);
+}
+
 function unquoteGitPath(p: string): string {
   if (p.length >= 2 && p.startsWith('"') && p.endsWith('"')) {
     return p.slice(1, -1).replace(/\\(["\\])/g, "$1");

@@ -13,9 +13,22 @@ import {
 } from "../../index.js";
 import type { CommandContext, TractCommand } from "../router.js";
 import type { VoiceFile } from "../../index.js";
+import { selectedFlags } from "../helpers.js";
 
 function voiceDir(): string {
   return join(getTractHome(), "voice");
+}
+
+/** Reads --voice/--blog/--x/--linkedin (commander rejects anything else). */
+function platformFromOpts(ctx: CommandContext): VoiceFile | null {
+  const pick = selectedFlags(ctx.opts, ["voice", "blog", "x", "linkedin"]);
+  if (pick.length === 0) return null;
+  if (pick.length > 1) {
+    console.error(`One file at a time — pass one of --voice, --blog, --x, --linkedin (got ${pick.map((p) => `--${p}`).join(", ")}).`);
+    process.exitCode = 1;
+    return null;
+  }
+  return resolveVoiceFile(`--${pick[0]}`);
 }
 
 async function run(ctx: CommandContext): Promise<void> {
@@ -24,13 +37,8 @@ async function run(ctx: CommandContext): Promise<void> {
   await ensureVoiceFiles(dir);
 
   if (sub === "view") {
-    const flag = ctx.args.find((a) => a.startsWith("--"));
-    const file: VoiceFile | null = flag ? resolveVoiceFile(flag) : null;
-    if (flag && !file) {
-      console.error(`Unknown voice flag ${flag}. Use --voice, --blog, --x, or --linkedin.`);
-      process.exitCode = 1;
-      return;
-    }
+    const file = platformFromOpts(ctx);
+    if (process.exitCode === 1) return;
     if (file) {
       console.log(`--- ${file} ---`);
       console.log((await readVoiceFile(dir, file)) || "(empty)");
@@ -44,8 +52,8 @@ async function run(ctx: CommandContext): Promise<void> {
   }
 
   if (sub === "add" || sub === "create" || sub === "remove") {
-    const flag = ctx.args.find((a) => a.startsWith("--"));
-    const file = flag ? resolveVoiceFile(flag) : null;
+    const file = platformFromOpts(ctx);
+    if (process.exitCode === 1) return;
     if (!file) {
       console.error(`Specify a file: --voice, --blog, --x, or --linkedin. e.g. tract voice ${sub} --blog "<sample>"`);
       process.exitCode = 1;
@@ -74,6 +82,15 @@ async function run(ctx: CommandContext): Promise<void> {
 export const command: TractCommand = {
   name: "voice",
   description: "manage voice samples (add/create/remove/view)",
-  usage: 'voice [add|create|remove|view] [--voice|--blog|--x|--linkedin] ["<sample>"]',
+  args: [
+    { name: "sub", description: "add | create | remove | view" },
+    { name: "sample", description: "pasted sample (add/create)", variadic: true },
+  ],
+  options: [
+    { flags: "--voice", description: "the default voice.md" },
+    { flags: "--blog", description: "blog.md" },
+    { flags: "--x", description: "x.md" },
+    { flags: "--linkedin", description: "linkedin.md" },
+  ],
   run,
 };

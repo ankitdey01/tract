@@ -33,11 +33,14 @@ Build one capability slice at a time, then stop. Verify it live with the user be
 
 ## Skills
 
-- Vendored in `.agents/skills/`: `typesafe-ai`, `bulk-classify` (classifier.dev), plus engineering workflow skills.
-- Before using TypeSafe or classifier.dev, read the skill's `SKILL.md` and the live docs — do not guess APIs/structures:
+- Vendored in `.agents/skills/`: `typesafe-ai`, `bulk-classify` (classifier.dev), `ai-sdk` (vercel ai sdk skills), plus engineering workflow skills.
+- Before using TypeSafe, classifier.dev, or the AI SDK, read the skill's `SKILL.md` and the live docs — do not guess APIs/structures:
   - TypeSafe: https://docs.typesafe.ai/llms.txt
   - classifier.dev: https://classifier.dev/llms.txt
+  - AI SDK: https://ai-sdk.dev/llms.txt (never write AI SDK code from memory; verify against installed `node_modules/ai` docs + typechecker)
 - Significance uses TypeSafe Jev only — `bulk-classify` is NOT in the significance path (retired heuristic/cascade idea).
+- Before using vercel ai sdk, read the skills `ai-sdk` `SKILL.md`.
+  - Vercel SDK: https://ai-sdk.dev/llms.txt
 
 ## Agent skills
 

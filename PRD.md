@@ -65,10 +65,12 @@ Solo/indie developers building in public with an existing or growing social pres
 - **Open, resolved for v1:** voice profile is global per-user. Per-repo/project tone scoping deferred to post-v1.
 - **Cold-start problem, acknowledged but not fully solved:** a brand-new user with no past posts either has to paste several samples upfront (friction) or gets generic output until enough signal accumulates (mediocre first impression). For hackathon/demo purposes, resolved by pre-seeding real posts before demo day — not yet solved for a genuine first-time user in production.
 
-### 7.4 Generation
+### 7.4 Generation (decided)
 - Input: committed diff + commit context + README (where available) + paired voice profile (`voice.md` + platform file) + target platform
-- Output: 1–2 draft candidates per format, all 3 v1 formats generated per trigger (Blog, X, LinkedIn — YouTube script deferred)
-- Blog format includes a configurable target word count
+- One platform per request via `tract generate [<sha>] [--force] [--blog|--x|--linkedin]` — no fan-out; each platform drafted separately on demand
+- Provider: Groq (BYOK key in `.env`) behind our own `Generator` interface, implemented with the Vercel AI SDK (`ai` + `@ai-sdk/groq`; model pinned in `config.json`). Single-stage: code-assembled prompt carries the full raw context — no prompt-builder model call.
+- Web enrichment: Groq browser search attached on every draft (no flag, no extra key — billed as tokens on the same key). gpt-oss-only; changing `genModel` off gpt-oss silently drops search.
+- Blog format includes a configurable target word count; blog output is Markdown (links as `[text](url)`)
 
 ### 7.5 Review
 - First surface: drafts shown in the terminal-native interface for review, with persistence to a local file
@@ -86,7 +88,7 @@ Pipeline, in order:
 
 1. Diff/commit extraction from the local git repo
 2. Significance filter (Jev Noul judgment only; `--force` bypasses)
-3. Context building (diff + README + voice profile)
+3. Context building (commit message + parent + shaped diff + file contents only — no voice, reference, or preferences) — gathered once per sha, cached as `context.json` in `~/.tract/repos/<slug>/<sha>/`, reused by every later `generate`/`context` call for that sha. Voice, reference, and preference files are read fresh from `~/.tract` on every `generate` call, never cached in `context.json`
 4. Generation (prompt + external LLM, provider TBD)
 5. Human review (edit/approve/regenerate/reject — required before publish)
 6. Publish (browser-based; X intent vs. copy+open per §7.6)
@@ -110,9 +112,12 @@ TBD — to be decided during build. Constraints only:
 
 ## 10. Command Surface (decided draft — refinements open)
 
-- `tract diff [--staged]` — pre-commit preview of exactly what Jev + generation would see if run now (`git diff HEAD` by default; `--staged` = `git diff --cached` only)
-- `tract generate [<sha>] [--force]` — runs Jev gate then generates from a **committed** commit; default `<sha>` = HEAD (last commit); explicit SHA targets history; `--force` skips the Jev gate
+- `tract context [<sha>] [--json]` — generation-ready context inspector for a commit (replaces retired `tract diff`; no LLM, no `--staged` pre-commit preview in v1)
+- `tract generate [<sha>] [--force] [--blog|--x|--linkedin]` — Jev gate then drafts **one** requested platform; default `<sha>` = HEAD; `--force` skips the Jev gate
 - `tract voice [add|create|remove|view] [--blog|--x|--linkedin] ["<pasted string>"]` — `add` appends, `create` overwrites, `remove` clears, `view` shows all (flag filters to one); `voice.md` always pairs with the platform file
+- `tract review [<sha>] [--blog|--x|--linkedin] [--accept|--reject] [--reason "<text>"]` — displays the stored draft, records the verdict in `review-<platform>.json` (versions with content hashes + preference summaries; reject requires no reason, defaults recorded); verdicts bind to exact text, edits snapshot new versions
+- `tract reference [add|create|remove|view] [--blog|--x|--linkedin] ["<post>"]` — real-post examples per platform (`~/.tract/reference/`); studied as style variations, never copied
+- `tract preferences [add|create|remove|view] [--blog|--x|--linkedin] ["<rule>"]` — global platform taste rules (`~/.tract/preferences/`); distilled automatically at changed-hash verdicts (dual-output preference call: commit preference + style-only global rule), curated by hand; cap 20/platform, oldest rotates; applied to every generation including first drafts
 - `tract publish --platform x|linkedin|medium --commit <sha> [--copy]` — drafts read from the global store (`~/.tract/repos/<repo-slug>/<sha>/`); X opens intent URL (true prefill); LinkedIn/Medium use copy + open compose page (no prefill URL exists, per §7.6); `--copy` forces the copy path
 - Store (decided): no repo-local `.tract/` — everything under user home `~/.tract/` (Windows: `C:\Users\<you>\.tract\`), namespaced per repo for drafts; YouTube deferred so no `--youtube` voice/platform in v1
 
@@ -145,7 +150,7 @@ TBD — to be decided during build. Constraints only:
 1. Diff/commit extraction
 2. Significance filter (Jev Noul judge + `--force` bypass)
 3. Voice profile loader (per-platform `.md` files: `blog.md`, `x.md`, `linkedin.md`)
-4. Generation — prompt builder + LLM call, 3 v1 formats (Blog, X, LinkedIn; YouTube deferred)
+4. Generation — prompt builder + Groq call via Vercel AI SDK, one platform per request (Blog, X, LinkedIn; YouTube deferred)
 5. Review output (display + file persistence to global `~/.tract`)
 6. Publish — X intent URL (v1 target), LinkedIn copy+open (stretch)
 7. Feedback loop — V2 (deferred): persist edit/accept/reject signal, feed back into voice profile. V1 ships static voice only.

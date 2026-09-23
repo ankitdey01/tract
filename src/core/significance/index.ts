@@ -2,9 +2,9 @@
 
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import type { Verdict } from "../../shared/types.js";
-import { IS_SIGNIFICANT_CRITERIA, IS_SIGNIFICANT_INSTRUCTIONS } from "./prompts.js";
+import { IS_SIGNIFICANT_CRITERIA, IS_SIGNIFICANT_INSTRUCTIONS } from "../prompts.js";
 
-export { IS_SIGNIFICANT_CRITERIA, IS_SIGNIFICANT_INSTRUCTIONS } from "./prompts.js";
+export { IS_SIGNIFICANT_CRITERIA, IS_SIGNIFICANT_INSTRUCTIONS } from "../prompts.js";
 
 export interface SignificanceInput {
   diff: string;

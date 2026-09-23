@@ -3,7 +3,7 @@
 import { execFile } from "node:child_process";
 import { shapeDiffForJudge } from "./ignore.js";
 
-export { IGNORED_DIR_PREFIXES, IGNORED_FILES, IGNORED_SUFFIXES, shapeDiffForJudge } from "./ignore.js";
+export { IGNORED_DIR_PREFIXES, IGNORED_FILES, IGNORED_SUFFIXES, isIgnoredPath, shapeDiffForJudge } from "./ignore.js";
 
 const MAX_DIFF_CHARS = 30_000;
 
@@ -22,46 +22,11 @@ export function truncateDiff(diff: string): { diff: string; truncated: boolean }
 }
 
 function parseFileList(raw: string): string[] {
-  return raw.split("\n").map((s) => s.trim()).filter(Boolean);
-}
-
-/** Empty tree object: diffing against it shows all tracked files (pre-first-commit). */
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-
-async function hasHead(cwd: string): Promise<boolean> {
-  try {
-    await runGit(cwd, ["rev-parse", "--verify", "HEAD"]);
-    return true;
-  } catch {
-    return false;
-  }
+  return [...new Set(raw.split("\n").map((s) => s.trim()).filter(Boolean))];
 }
 
 function shapeAndTruncate(rawDiff: string): { diff: string; truncated: boolean } {
   return truncateDiff(shapeDiffForJudge(rawDiff).diff);
-}
-
-/** Pre-commit preview: what Jev would see if run right now. Tracked changes only. */
-export async function getDiffPreview(
-  cwd: string,
-  opts: { stagedOnly: boolean } = { stagedOnly: false }
-): Promise<{ diff: string; filesChanged: string[]; truncated: boolean }> {
-  let diffArgs: string[];
-  let filesArgs: string[];
-  if (opts.stagedOnly) {
-    diffArgs = ["diff", "--cached", "--no-color"];
-    filesArgs = ["diff", "--cached", "--name-only"];
-  } else if (await hasHead(cwd)) {
-    diffArgs = ["diff", "HEAD", "--no-color"];
-    filesArgs = ["diff", "--name-only", "HEAD"];
-  } else {
-    diffArgs = ["diff", EMPTY_TREE, "--no-color"];
-    filesArgs = ["diff", "--name-only", EMPTY_TREE];
-  }
-  const [raw, filesRaw] = await Promise.all([runGit(cwd, diffArgs), runGit(cwd, filesArgs)]);
-  const { diff, truncated } = shapeAndTruncate(raw);
-  const filesChanged = parseFileList(filesRaw);
-  return { diff, filesChanged, truncated };
 }
 
 export async function resolveSha(cwd: string, shaOrHead: string = "HEAD"): Promise<string> {
@@ -77,9 +42,88 @@ export async function getCommitPayload(
   const [commitMessage, rawDiff, filesRaw] = await Promise.all([
     runGit(cwd, ["log", "-1", "--format=%B", sha]),
     runGit(cwd, ["show", sha, "--format=", "--no-color", "--patch"]),
-    runGit(cwd, ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha]),
+    runGit(cwd, ["diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--root", sha]),
   ]);
   const { diff, truncated } = shapeAndTruncate(rawDiff);
   const filesChanged = parseFileList(filesRaw);
   return { sha, commitMessage: commitMessage.trim(), diff, filesChanged, truncated };
+}
+
+/** One-letter change kind per path in a commit (R = renamed, path is the new name). */
+export interface FileStatus {
+  path: string;
+  status: string;
+  /** Rename/copy source (only set for R/C statuses). */
+  previousPath?: string;
+}
+
+export async function getFileStatuses(cwd: string, sha: string): Promise<FileStatus[]> {
+  // -m: merges diff against each parent (default prints nothing for merges).
+  // -z: NUL-delimited, so quoted/unusual paths arrive verbatim.
+  const raw = await runGit(cwd, ["diff-tree", "--no-commit-id", "--name-status", "-r", "-m", "--root", "-z", sha]);
+  const tokens = raw.split("\0");
+  const out: FileStatus[] = [];
+  const seen = new Set<string>();
+  let i = 0;
+  while (i < tokens.length) {
+    const statusTok = tokens[i];
+    if (!statusTok) break;
+    const letter = statusTok.slice(0, 1);
+    if (letter === "R" || letter === "C") {
+      const src = tokens[i + 1];
+      const dest = tokens[i + 2];
+      if (dest === undefined || dest === "") break;
+      if (!seen.has(dest)) {
+        seen.add(dest);
+        out.push({ status: letter, path: dest, previousPath: src || undefined });
+      }
+      i += 3;
+    } else {
+      const path = tokens[i + 1];
+      if (path === undefined || path === "") break;
+      if (!seen.has(path)) {
+        seen.add(path);
+        out.push({ status: letter, path });
+      }
+      i += 2;
+    }
+  }
+  return out;
+}
+
+/** Parent commit message (nulls on root commits). */
+export async function getParentMessage(cwd: string, sha: string): Promise<{ sha: string | null; message: string | null }> {
+  try {
+    const parent = (await runGit(cwd, ["rev-parse", `${sha}^`])).trim();
+    const message = (await runGit(cwd, ["log", "-1", "--format=%B", parent])).trim();
+    return { sha: parent, message };
+  } catch {
+    return { sha: null, message: null };
+  }
+}
+
+/** Blob size cap: larger files are reported as "too-large" without reading them. */
+export const MAX_BLOB_BYTES = 1_000_000;
+
+/**
+ * File content at a commit. Null only when the path doesn't exist there
+ * (deleted). "too-large" when the blob exceeds MAX_BLOB_BYTES.
+ */
+export async function readFileAtCommit(cwd: string, sha: string, path: string): Promise<string | null | "too-large"> {
+  try {
+    const sizeRaw = await runGit(cwd, ["cat-file", "-s", `${sha}:${path}`]);
+    const size = Number.parseInt(sizeRaw.trim(), 10);
+    if (Number.isFinite(size) && size > MAX_BLOB_BYTES) return "too-large";
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/does not exist|not a valid object|bad file/i.test(msg)) return null;
+    throw err;
+  }
+  try {
+    return await runGit(cwd, ["show", `${sha}:${path}`]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/does not exist/i.test(msg)) return null;
+    throw err;
+  }
 }
